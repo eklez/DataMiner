@@ -9,6 +9,12 @@ from ..util.json import writeJson
 
 
 class Unpacker:
+    """Given zip(currently only support .zip) file, unpack it to output directory
+
+    Attribute:
+        tree    tree dictionary from unpacked data
+    """
+
     def __init__(self, filename, outdir):
         self.filename = filename
         self.outdir = os.path.abspath(outdir)
