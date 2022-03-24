@@ -1,6 +1,8 @@
+import hashlib
 import os
 import shutil
 import zipfile
+import json
 import mimetypes
 from enum import Enum
 
@@ -15,9 +17,26 @@ class Unpacker:
     def __init__(self, filename, outdir):
         self.filename = filename
         self.outdir = os.path.abspath(outdir)
+        self.json = os.path.join(self.outdir, "tree.json")
 
-        self.tree = {}
-        self._preprocess()
+        self.fileHash = self.__calc_hash(self.filename)
+
+        if not self._loadTree():
+            self.tree = {}
+            self._preprocess()
+            self._writeJson()
+
+    def _loadTree(self):
+        if not os.path.isfile(self.json):
+            return False
+
+        loadJson = self._loadJson()
+        if self.fileHash != loadJson["hash"]:
+            return False
+
+        # Exact match
+        self.tree = loadJson
+        return True
 
     def _preprocess(self):
         # Unpacked directory
@@ -25,6 +44,7 @@ class Unpacker:
         root_node = {
             "path": os.path.abspath(self.outdir),
             "type": self.FileType.DIRECTORY,
+            "hash": self.fileHash,  # Only root node
             "childnum": 0,
             "child": [],
         }
@@ -53,6 +73,7 @@ class Unpacker:
                 with zipfile.ZipFile(child, 'r') as zf:
                     zipInfo = zf.infolist()
                     for e in zipInfo:
+                        # Support Korean filename
                         e.filename = e.filename.encode(
                             'cp437').decode('euc-kr')
                         zf.extract(member=e, path=childPath)
@@ -96,3 +117,22 @@ class Unpacker:
             if 'image/png' in file_mime:
                 return self.FileType.PNG
         return self.FileType.UNKNOWN
+
+    def _writeJson(self):
+        with open(self.json, "w", encoding="UTF-8") as f:
+            json.dump(self.tree, f)
+
+    def _loadJson(self):
+        with open(self.json, "r", encoding="UTF-8") as f:
+            result = json.load(f)
+        return result
+
+    def __calc_hash(self, filename):
+        sha1 = hashlib.sha1()
+        with open(filename, 'rb') as f:
+            while True:
+                data = f.read(65536)
+                if not data:
+                    break
+                sha1.update(data)
+        return sha1.hexdigest()
