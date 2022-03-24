@@ -1,49 +1,44 @@
-import hashlib
 import os
 import shutil
 import zipfile
-import json
+import sys
 import mimetypes
-from enum import Enum
+
+from ..util.tree import readTree, calcFileHash, FileType
+from ..util.json import writeJson
 
 
 class Unpacker:
-    class FileType(str, Enum):
-        UNKNOWN = 'UNKNOWN'
-        DIRECTORY = 'DIRECTORY'
-        ZIP = 'ZIP'
-        PNG = 'PNG'
-
     def __init__(self, filename, outdir):
         self.filename = filename
         self.outdir = os.path.abspath(outdir)
         self.json = os.path.join(self.outdir, "tree.json")
 
-        self.fileHash = self.__calc_hash(self.filename)
+        loaded, tree = readTree(self.json)
+        if loaded:
+            self.tree = tree
+            if tree["hash"] != calcFileHash(self.filename):
+                # Tree data is already exist, but file hash does not match
+                # May use other out directory
+                print("Tree data already exist", file=sys.stderr)
+                return
+            self.fileHash = tree["hash"]
 
-        if not self._loadTree():
+        else:
             self.tree = {}
+            self.fileHash = calcFileHash(self.filename)
+
+            # Generate tree & unpack in outdir
             self._preprocess()
-            self._writeJson()
 
-    def _loadTree(self):
-        if not os.path.isfile(self.json):
-            return False
-
-        loadJson = self._loadJson()
-        if self.fileHash != loadJson["hash"]:
-            return False
-
-        # Exact match
-        self.tree = loadJson
-        return True
+            writeJson(self.json, self.tree)
 
     def _preprocess(self):
         # Unpacked directory
         os.makedirs(self.outdir, exist_ok=True)
         root_node = {
             "path": os.path.abspath(self.outdir),
-            "type": self.FileType.DIRECTORY,
+            "type": FileType.DIRECTORY,
             "hash": self.fileHash,  # Only root node
             "childnum": 0,
             "child": [],
@@ -67,7 +62,7 @@ class Unpacker:
             childType = self._getFileType(child)
             childPath = os.path.splitext(child)[0]
 
-            if childType == self.FileType.ZIP:
+            if childType == FileType.ZIP:
                 # Do not append a zip file directly
                 # Extract the zip and append directory instead
                 with zipfile.ZipFile(child, 'r') as zf:
@@ -79,27 +74,27 @@ class Unpacker:
                         zf.extract(member=e, path=childPath)
                 os.remove(child)
                 children.append(os.path.splitext(child_basename)[0])
-            elif childType == self.FileType.DIRECTORY:
+            elif childType == FileType.DIRECTORY:
                 node = {
                     "path": childPath,
-                    "type": self.FileType.DIRECTORY,
+                    "type": FileType.DIRECTORY,
                     "childnum": 0,
                     "child": [],
                 }
                 # Recursively generate child nodes
                 node = self._generateChildNodes(node)
                 parentNode["child"].append(node)
-            elif childType == self.FileType.PNG:
+            elif childType == FileType.PNG:
                 node = {
                     "path": childPath,
-                    "type": self.FileType.PNG,
+                    "type": FileType.PNG,
                 }
                 parentNode["child"].append(node)
             else:
                 # TODO
                 node = {
                     "path": childPath,
-                    "type": self.FileType.UNKNOWN,
+                    "type": FileType.UNKNOWN,
                     "child": []
                 }
                 parentNode["child"].append(node)
@@ -109,30 +104,11 @@ class Unpacker:
 
     def _getFileType(self, filename):
         if os.path.isdir(filename):
-            return self.FileType.DIRECTORY
+            return FileType.DIRECTORY
         if os.path.isfile(filename):
             file_mime = mimetypes.guess_type(filename)
             if 'application/x-zip-compressed' in file_mime:
-                return self.FileType.ZIP
+                return FileType.ZIP
             if 'image/png' in file_mime:
-                return self.FileType.PNG
-        return self.FileType.UNKNOWN
-
-    def _writeJson(self):
-        with open(self.json, "w", encoding="UTF-8") as f:
-            json.dump(self.tree, f)
-
-    def _loadJson(self):
-        with open(self.json, "r", encoding="UTF-8") as f:
-            result = json.load(f)
-        return result
-
-    def __calc_hash(self, filename):
-        sha1 = hashlib.sha1()
-        with open(filename, 'rb') as f:
-            while True:
-                data = f.read(65536)
-                if not data:
-                    break
-                sha1.update(data)
-        return sha1.hexdigest()
+                return FileType.PNG
+        return FileType.UNKNOWN
