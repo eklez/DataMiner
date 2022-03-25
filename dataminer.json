@@ -1,0 +1,8 @@
+{
+  "mode": "imgconvert",
+  "configure": {
+    "target": "PNG",
+    "width": "100",
+    "hegiht": "100"
+  }
+}

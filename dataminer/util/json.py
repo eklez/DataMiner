@@ -1,7 +1,11 @@
 import json
+import os
 
 
 def loadJson(filename):
+    if not os.path.isfile(filename):
+        return None
+
     with open(filename, "r", encoding="UTF-8") as f:
         result = json.load(f)
     return result
